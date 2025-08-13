@@ -1,0 +1,50 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+``` {r}
+data <- read_csv("Data/morningstarPull.csv")
+
+
+```
+
+
+Creates 'months_to_50m' and 'months_to_75m' columns 
+``` {r}
+
+
+data <- data %>%
+  rowwise() %>%
+  mutate(months_to_50m = {
+    vals <- c_across(`Total Net Assets 2014-07`:`Total Net Assets 2025-06`)
+    vals <- vals[!is.na(vals) & vals > 0]
+    match(TRUE, cumsum(vals) >= 50000000)
+  },
+   months_to_75m = {
+      vals <- c_across(`Total Net Assets 2014-07`:`Total Net Assets 2025-06`)
+      vals <- vals[!is.na(vals) & vals > 0]
+      match(TRUE, cumsum(vals) >= 75000000)
+   }
+  ) %>%
+  ungroup()
+```
+
+``` {r}
+
+dashboard <- data %>%
+  select(`Branding Name`, Fund, `Active/Passive`, `Morningstar Category`, months_to_50m, months_to_75m)
+
+companies <-  dashboard %>%
+  group_by(`Branding Name`) %>%
+  summarise(
+    avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+    avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+  )
+```
