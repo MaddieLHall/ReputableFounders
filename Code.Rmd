@@ -7,44 +7,179 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(dplyr)
+library(lubridate)
+library(readxl)
+
 ```
 
 ``` {r}
-data <- read_csv("Data/morningstarPull.csv")
+selectCompaniesRaw <- read.csv("Data/morningstarPull2.csv", check.names = FALSE)
+allFundsRaw1 <- read_excel("Data/allFunds.xlsx", sheet = 1)
+allFundsRaw2 <- read_excel("Data/allFunds2.xlsx", sheet = 1)
+allFundsRaw2 <- allFundsRaw2 %>%
+  select(-`Branding Name`, -Fund, -`Active/Passive`, -`Morningstar Category`, -FundId)
 
+allFundsRawCombined <- bind_cols(allFundsRaw1, allFundsRaw2)
 
 ```
-
 
 Creates 'months_to_50m' and 'months_to_75m' columns 
 ``` {r}
 
-
-data <- data %>%
+selectCompaniesRaw <- selectCompaniesRaw %>%
+  # clean asset columns: strip $, commas, etc. and convert to numeric
+  mutate(across(starts_with("Total Net Assets"), ~ as.numeric(gsub("[^0-9.]", "", .)))) %>%
   rowwise() %>%
-  mutate(months_to_50m = {
-    vals <- c_across(`Total Net Assets 2014-07`:`Total Net Assets 2025-06`)
-    vals <- vals[!is.na(vals) & vals > 0]
-    match(TRUE, cumsum(vals) >= 50000000)
-  },
-   months_to_75m = {
-      vals <- c_across(`Total Net Assets 2014-07`:`Total Net Assets 2025-06`)
-      vals <- vals[!is.na(vals) & vals > 0]
-      match(TRUE, cumsum(vals) >= 75000000)
-   }
+  mutate(
+    months_to_50m = {
+      vals <- c_across(starts_with("Total Net Assets"))
+      vals <- vals[!is.na(vals)]
+      start <- which(vals > 0)[1]
+      if (is.na(start)) NA_integer_ else {
+        vals <- vals[start:length(vals)]
+        idx <- which(cumsum(vals) >= 50000000)
+        if (length(idx) == 0) NA_integer_ else idx[1]
+      }
+    },
+    months_to_75m = {
+      vals <- c_across(starts_with("Total Net Assets"))
+      vals <- vals[!is.na(vals)]
+      start <- which(vals > 0)[1]
+      if (is.na(start)) NA_integer_ else {
+        vals <- vals[start:length(vals)]
+        idx <- which(cumsum(vals) >= 75000000)
+        if (length(idx) == 0) NA_integer_ else idx[1]
+      }
+    }
   ) %>%
   ungroup()
+
+
 ```
+
+```{r}
+
+
+allFundsRawCombined <- allFundsRawCombined %>%
+  mutate(across(starts_with("Total Net Assets"), ~ as.numeric(gsub("[^0-9.]", "", .)))) %>%
+  rowwise() %>%
+  mutate(
+    months_to_50m = {
+      vals <- c_across(starts_with("Total Net Assets"))
+      vals <- vals[!is.na(vals)]
+      start <- which(vals > 0)[1]
+      if (is.na(start)) NA_integer_ else {
+        vals <- vals[start:length(vals)]
+        idx <- which(cumsum(vals) >= 50000000)
+        if (length(idx) == 0) NA_integer_ else idx[1]
+      }
+    },
+    months_to_75m = {
+      vals <- c_across(starts_with("Total Net Assets"))
+      vals <- vals[!is.na(vals)]
+      start <- which(vals > 0)[1]
+      if (is.na(start)) NA_integer_ else {
+        vals <- vals[start:length(vals)]
+        idx <- which(cumsum(vals) >= 75000000)
+        if (length(idx) == 0) NA_integer_ else idx[1]
+      }
+    }
+  ) %>%
+  ungroup()
+
+
+```
+
+Calculates the average time it takes each fund shop to hit 50m and 75m.
+Amplify's excludes  "Amplify Junior Silver Miners ETF," Amplify Cybersecurity ETF","Amplify Bluestar Israel Technology ETF", "Amplify Digital Payments ETF" as they were launched before the company formally launched.
+           
+
 
 ``` {r}
 
-dashboard <- data %>%
+selectDashboard <- selectCompaniesRaw %>%
   select(`Branding Name`, Fund, `Active/Passive`, `Morningstar Category`, months_to_50m, months_to_75m)
 
-companies <-  dashboard %>%
+selectCompanies <- selectDashboard %>%
+  filter(`Branding Name` != "Amplify") %>%
   group_by(`Branding Name`) %>%
   summarise(
     avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
     avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
   )
+
+amplify_avg <- selectDashboard %>%
+  filter(`Branding Name` == "Amplify" & 
+         !Fund %in% c(
+           "Amplify Junior Silver Miners ETF",
+           "Amplify Cybersecurity ETF",
+           "Amplify Bluestar Israel Technology ETF",
+           "Amplify Digital Payments ETF"
+         )) %>%
+  summarise(avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+                avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+)
+
+selectCompanies <- selectCompanies %>%
+  add_row(
+    `Branding Name` = "Amplify",
+    avg_months_to_50m = amplify_avg$avg_months_to_50m,
+    avg_months_to_75m = amplify_avg$avg_months_to_75m
+  )
+
+allDashboard <- allFundsRawCombined %>%
+  select(`Branding Name`, Fund, `Active/Passive`, `Morningstar Category`, months_to_50m, months_to_75m)
+
+allCompanies <- allDashboard %>%
+  filter(`Branding Name` != "Amplify") %>%
+  group_by(`Branding Name`) %>%
+  summarise(
+    avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+    avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+  )
+
+
+allCompanies <- allCompanies %>%
+  add_row(
+    `Branding Name` = "Amplify",
+    avg_months_to_50m = amplify_avg$avg_months_to_50m,
+    avg_months_to_75m = amplify_avg$avg_months_to_75m
+  ) 
+
 ```
+
+```{r}
+selectCompaniesRaw %>%
+  group_by(`Branding Name`) %>%
+  summarise(
+    avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+    avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+  )
+
+selectCompaniesRaw %>%
+  group_by(`Morningstar Category`) %>%
+  summarise(
+    avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+    avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+  )
+```
+
+```{r}
+
+allFundsRawCombined %>%
+  group_by(`Branding Name`) %>%
+  summarise(
+    avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+    avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+  )
+
+allFundsRawCombined %>%
+  group_by(`Morningstar Category`) %>%
+  summarise(
+    avg_months_to_50m = mean(months_to_50m, na.rm = TRUE),
+    avg_months_to_75m = mean(months_to_75m, na.rm = TRUE)
+  )
+```
+
+
+Next I need to compare like morningstar categories between all and the select ones
